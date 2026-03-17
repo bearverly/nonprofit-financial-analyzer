@@ -399,6 +399,26 @@ def export_to_pptx(statements: dict, transactions_df: pd.DataFrame,
     _add_table_slide(prs, f"Statement of Cash Flows — {org_name}",
                      ["Description", "Amount"], rows, col_widths=[6.5, 2.5])
 
+    # --- Notes / blank slide ---
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    txBox = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(9), Inches(0.6))
+    p = txBox.text_frame.paragraphs[0]
+    run = p.add_run()
+    run.text = "Notes"
+    run.font.size = Pt(20)
+    run.font.bold = True
+    run.font.color.rgb = _DARK
+    run.font.name = "Calibri"
+
+    txBox2 = slide.shapes.add_textbox(Inches(0.5), Inches(1.0), Inches(9), Inches(0.4))
+    p2 = txBox2.text_frame.paragraphs[0]
+    r2 = p2.add_run()
+    r2.text = "Use this space for additional notes, charts, or supporting documentation."
+    r2.font.size = Pt(11)
+    r2.font.italic = True
+    r2.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
+    r2.font.name = "Calibri"
+
     output = io.BytesIO()
     prs.save(output)
     output.seek(0)
@@ -673,6 +693,13 @@ def export_to_pdf(statements: dict, transactions_df: pd.DataFrame,
     pdf.add_line_item("Net Change in Cash", cf["net_change_in_cash"], bold=True)
     pdf.add_line_item("Beginning Cash Balance", cf["beginning_cash"])
     pdf.add_total_line("ENDING CASH BALANCE", cf["ending_cash"])
+
+    # --- Notes / blank page ---
+    pdf.add_statement_header("Notes")
+    pdf.set_font("Helvetica", "I", 10)
+    pdf.set_text_color(150, 150, 150)
+    pdf.cell(0, 8, "Use this space for additional notes, charts, or supporting documentation.",
+             new_x="LMARGIN", new_y="NEXT")
 
     output = io.BytesIO()
     pdf.output(output)
