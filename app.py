@@ -17,6 +17,7 @@ from categorizer import (
 )
 from statements import generate_all_statements
 from exporter import export_to_excel
+from report_exporter import export_to_pptx, export_to_pdf
 from form990 import generate_form990_data
 from archive import (
     save_archive, list_archives, load_archive,
@@ -606,14 +607,38 @@ def statements_section():
 
     excel_bytes = export_to_excel(stmts, df)
     suffix = f"_{acct_label.replace(' ', '_')}" if acct_label != "All Accounts" else ""
-    st.download_button(
-        label="Download All Statements (Excel)",
-        data=excel_bytes,
-        file_name=f"{st.session_state.org_name.replace(' ', '_')}{suffix}_Financial_Statements.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="primary",
-        use_container_width=True,
-    )
+    base_name = st.session_state.org_name.replace(" ", "_")
+
+    dl_col1, dl_col2, dl_col3 = st.columns(3)
+    with dl_col1:
+        st.download_button(
+            label="Download Excel",
+            data=excel_bytes,
+            file_name=f"{base_name}{suffix}_Financial_Statements.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True,
+        )
+    with dl_col2:
+        pptx_bytes = export_to_pptx(stmts, df, org_name=st.session_state.org_name)
+        st.download_button(
+            label="Download PowerPoint",
+            data=pptx_bytes,
+            file_name=f"{base_name}{suffix}_Financial_Statements.pptx",
+            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            type="primary",
+            use_container_width=True,
+        )
+    with dl_col3:
+        pdf_bytes = export_to_pdf(stmts, df, org_name=st.session_state.org_name)
+        st.download_button(
+            label="Download PDF",
+            data=pdf_bytes,
+            file_name=f"{base_name}{suffix}_Financial_Statements.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True,
+        )
 
     st.markdown("---")
 
