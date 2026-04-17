@@ -120,7 +120,7 @@ def get_period_options() -> list[str]:
     if df is None or len(df) == 0:
         return ["All Dates"]
 
-    months = df["Date"].dt.to_period("M").unique().sort_values()
+    months = sorted(df["Date"].dt.to_period("M").unique())
     month_labels = [m.strftime("%B %Y") for m in months]
 
     years = sorted(df["Date"].dt.year.unique())
