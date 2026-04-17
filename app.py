@@ -105,6 +105,7 @@ def init_session_state():
         "accounts": {},
         "pending_files": [],
         "account_filter": "All Accounts",
+        "period_filter": "All Dates",
         "ein": "",
         "beginning_net_assets": 0.0,
     }
@@ -113,15 +114,105 @@ def init_session_state():
             st.session_state[key] = val
 
 
+def get_period_options() -> list[str]:
+    """Build the list of period filter options from the loaded data."""
+    df = st.session_state.std_df
+    if df is None or len(df) == 0:
+        return ["All Dates"]
+
+    months = df["Date"].dt.to_period("M").unique().sort_values()
+    month_labels = [m.strftime("%B %Y") for m in months]
+
+    years = sorted(df["Date"].dt.year.unique())
+    quarter_labels = []
+    ytd_labels = []
+    for y in years:
+        year_df = df[df["Date"].dt.year == y]
+        quarters = sorted(year_df["Date"].dt.quarter.unique())
+        for q in quarters:
+            quarter_labels.append(f"Q{q} {y}")
+        max_month = year_df["Date"].dt.month.max()
+        if max_month > 1:
+            ytd_labels.append(f"YTD {y} (through {year_df['Date'].max().strftime('%B')})")
+
+    options = ["All Dates"]
+    if month_labels:
+        options.append("---Months---")
+        options.extend(month_labels)
+    if quarter_labels:
+        options.append("---Quarters---")
+        options.extend(quarter_labels)
+    if ytd_labels:
+        options.append("---Year to Date---")
+        options.extend(ytd_labels)
+    if len(years) > 0:
+        options.append("---Full Year---")
+        for y in years:
+            options.append(f"Full Year {y}")
+    options.append("Custom Range")
+    return options
+
+
 def get_filtered_df() -> pd.DataFrame:
-    """Return the transaction dataframe filtered by the selected account."""
+    """Return the transaction dataframe filtered by account and period."""
     df = st.session_state.std_df
     if df is None:
         return pd.DataFrame()
     acct = st.session_state.account_filter
     if acct and acct != "All Accounts":
-        return df[df["Account"] == acct].copy()
+        df = df[df["Account"] == acct]
+
+    period = st.session_state.period_filter
+    if period and period not in ("All Dates", "Custom Range") and not period.startswith("---"):
+        df = _apply_period_filter(df, period)
+    elif period == "Custom Range":
+        start = st.session_state.get("custom_date_start")
+        end = st.session_state.get("custom_date_end")
+        if start is not None:
+            df = df[df["Date"] >= pd.Timestamp(start)]
+        if end is not None:
+            df = df[df["Date"] <= pd.Timestamp(end)]
+
     return df.copy()
+
+
+def _apply_period_filter(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    """Filter dataframe by a named period string."""
+    import re
+
+    # "January 2026" style month
+    try:
+        ts = pd.Timestamp(period)
+        start = ts.replace(day=1)
+        end = (start + pd.offsets.MonthEnd(0))
+        return df[(df["Date"] >= start) & (df["Date"] <= end)]
+    except Exception:
+        pass
+
+    # "Q1 2026" style quarter
+    q_match = re.match(r"Q(\d)\s+(\d{4})", period)
+    if q_match:
+        q, y = int(q_match.group(1)), int(q_match.group(2))
+        start_month = (q - 1) * 3 + 1
+        start = pd.Timestamp(year=y, month=start_month, day=1)
+        end = start + pd.offsets.QuarterEnd(0)
+        return df[(df["Date"] >= start) & (df["Date"] <= end)]
+
+    # "YTD 2026 (through July)" style
+    ytd_match = re.match(r"YTD\s+(\d{4})", period)
+    if ytd_match:
+        y = int(ytd_match.group(1))
+        start = pd.Timestamp(year=y, month=1, day=1)
+        end = df[df["Date"].dt.year == y]["Date"].max()
+        return df[(df["Date"] >= start) & (df["Date"] <= end)]
+
+    # "Full Year 2026"
+    fy_match = re.match(r"Full Year\s+(\d{4})", period)
+    if fy_match:
+        y = int(fy_match.group(1))
+        return df[df["Date"].dt.year == y]
+
+    return df
 
 
 def get_account_list() -> list[str]:
@@ -181,6 +272,33 @@ def sidebar():
                     f'<span class="account-badge">{acct}</span> {count} transactions',
                     unsafe_allow_html=True,
                 )
+
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("Period Filter")
+        period_options = get_period_options()
+        display_options = [p for p in period_options if not p.startswith("---")]
+        current_period = st.session_state.period_filter
+        p_idx = display_options.index(current_period) if current_period in display_options else 0
+        st.session_state.period_filter = st.sidebar.selectbox(
+            "Reporting period:", display_options, index=p_idx,
+            help="Filter all views and statements to a specific time period.",
+        )
+
+        if st.session_state.period_filter == "Custom Range":
+            df_all = st.session_state.std_df
+            min_date = df_all["Date"].min().date()
+            max_date = df_all["Date"].max().date()
+            st.session_state.custom_date_start = st.sidebar.date_input(
+                "Start date", value=min_date, min_value=min_date, max_value=max_date,
+            )
+            st.session_state.custom_date_end = st.sidebar.date_input(
+                "End date", value=max_date, min_value=min_date, max_value=max_date,
+            )
+
+        filtered_count = len(get_filtered_df())
+        total_count = len(st.session_state.std_df)
+        if st.session_state.period_filter != "All Dates":
+            st.sidebar.caption(f"Showing {filtered_count:,} of {total_count:,} transactions")
 
     st.sidebar.markdown("---")
     st.sidebar.markdown(
