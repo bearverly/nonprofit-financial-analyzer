@@ -245,7 +245,7 @@ def get_functional_classification(category: str) -> str:
         "Professional Services": "Management & General",
         "Insurance": "Management & General",
         "Facilities & Occupancy": "Management & General",
-        "Internal Account Transfer": "Management & General",
+        "Internal Account Transfer": "N/A",
         "Fundraising": "Fundraising",
         "Other Expenses": "Management & General",
     }

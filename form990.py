@@ -52,7 +52,7 @@ def generate_part1_summary(df: pd.DataFrame, beginning_net_assets: float = 0.0) 
     program_expenses = 0.0
     mgmt_expenses = 0.0
     fundraising_expenses = 0.0
-    expense_df = df[df["Amount"] < 0].copy()
+    expense_df = df[(df["Amount"] < 0) & (df["Category"] != "Internal Account Transfer")].copy()
     expense_df["Functional"] = expense_df["Category"].apply(get_functional_classification)
     for _, row in expense_df.iterrows():
         amt = abs(row["Amount"])
@@ -146,7 +146,7 @@ def generate_part9_expenses(df: pd.DataFrame) -> dict:
     Part IX: Statement of Functional Expenses.
     Each line broken into Total, Program, Management & General, and Fundraising.
     """
-    expense_df = df[df["Amount"] < 0].copy()
+    expense_df = df[(df["Amount"] < 0) & (df["Category"] != "Internal Account Transfer")].copy()
     expense_df["AbsAmount"] = expense_df["Amount"].abs()
     expense_df["Functional"] = expense_df["Category"].apply(get_functional_classification)
 
@@ -213,8 +213,9 @@ def generate_part10_balance_sheet(
     ending_cash = round(beginning_cash + net_activity, 2)
     total_assets = round(ending_cash + other_assets, 2)
 
-    total_revenue = df[df["Amount"] > 0]["Amount"].sum()
-    total_expenses = abs(df[df["Amount"] < 0]["Amount"].sum())
+    non_transfer = df[df["Category"] != "Internal Account Transfer"]
+    total_revenue = non_transfer[non_transfer["Amount"] > 0]["Amount"].sum()
+    total_expenses = abs(non_transfer[non_transfer["Amount"] < 0]["Amount"].sum())
     net_change = round(total_revenue - total_expenses, 2)
     ending_net_assets = round(beginning_net_assets + net_change, 2)
 

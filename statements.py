@@ -116,11 +116,12 @@ def statement_of_functional_expenses(
     period_start = df["Date"].min().strftime("%B %d, %Y") if len(df) > 0 else "N/A"
     period_end = df["Date"].max().strftime("%B %d, %Y") if len(df) > 0 else "N/A"
 
-    expense_df = df[df["Amount"] < 0].copy()
+    expense_df = df[(df["Amount"] < 0) & (df["Category"] != "Internal Account Transfer")].copy()
     expense_df["AbsAmount"] = expense_df["Amount"].abs()
     expense_df["Functional"] = expense_df["Category"].apply(get_functional_classification)
 
-    natural_categories = [c for c in EXPENSE_CATEGORIES if c not in FUNCTIONAL_CATEGORIES]
+    natural_categories = [c for c in EXPENSE_CATEGORIES
+                          if c not in FUNCTIONAL_CATEGORIES and c != "Internal Account Transfer"]
     natural_categories = natural_categories + ["Other Expenses"]
 
     seen = set()
@@ -191,6 +192,8 @@ def statement_of_cash_flows(
             operating_inflows[f"Cash received from {cat.lower()}"] = round(total, 2)
 
     for cat in EXPENSE_CATEGORIES:
+        if cat == "Internal Account Transfer":
+            continue
         total = abs(df.loc[df["Category"] == cat, "Amount"].sum())
         if total > 0:
             operating_outflows[f"Cash paid for {cat.lower()}"] = round(-total, 2)
