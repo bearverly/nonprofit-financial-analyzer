@@ -517,6 +517,187 @@ def categorization_section():
         st.rerun()
 
 
+def split_transaction_section():
+    """Allow users to split a bulk transaction into multiple line items."""
+    st.header("Split Transactions")
+    st.markdown(
+        "Break bulk deposits or withdrawals (e.g., from payment processors like "
+        "Square, Venmo, PayPal) into individual line items with separate categories."
+    )
+
+    df = st.session_state.std_df
+    if df is None or len(df) == 0:
+        st.warning("No transactions loaded.")
+        return
+
+    st.markdown("---")
+    st.subheader("Select a Transaction to Split")
+
+    display_df = df.copy()
+    display_df["_idx"] = display_df.index
+    display_df["Display"] = (
+        display_df["Date"].dt.strftime("%m/%d/%Y") + " | " +
+        display_df["Account"] + " | " +
+        display_df["Description"].str[:60] + " | " +
+        display_df["Amount"].apply(format_currency)
+    )
+
+    sort_option = st.radio(
+        "Show transactions by:", ["Largest first", "Most recent first", "All (original order)"],
+        horizontal=True,
+    )
+    if sort_option == "Largest first":
+        display_df = display_df.sort_values("Amount", key=abs, ascending=False)
+    elif sort_option == "Most recent first":
+        display_df = display_df.sort_values("Date", ascending=False)
+
+    search = st.text_input("Search by description (optional)", "",
+                           help="Filter transactions to find the one to split")
+    if search:
+        display_df = display_df[
+            display_df["Description"].str.contains(search, case=False, na=False)
+        ]
+
+    if len(display_df) == 0:
+        st.info("No matching transactions.")
+        return
+
+    options = display_df["Display"].tolist()
+    indices = display_df["_idx"].tolist()
+
+    selected_display = st.selectbox("Transaction to split:", options)
+    selected_idx = indices[options.index(selected_display)]
+    selected_row = df.loc[selected_idx]
+
+    st.markdown("---")
+    col_info1, col_info2, col_info3, col_info4 = st.columns(4)
+    col_info1.metric("Date", selected_row["Date"].strftime("%m/%d/%Y"))
+    col_info2.metric("Account", selected_row["Account"])
+    col_info3.metric("Amount", format_currency(selected_row["Amount"]))
+    col_info4.metric("Current Category", selected_row["Category"])
+
+    st.markdown(f"**Description:** {selected_row['Description']}")
+    st.markdown("---")
+
+    st.subheader("Define Split Line Items")
+    st.markdown(
+        "Add rows below to break this transaction into parts. "
+        "The amounts must add up to the original transaction total."
+    )
+
+    original_amount = selected_row["Amount"]
+    is_deposit = original_amount > 0
+
+    if "split_rows" not in st.session_state:
+        st.session_state.split_rows = 2
+
+    n_rows = st.session_state.split_rows
+
+    split_data = []
+    remaining = original_amount
+
+    for i in range(n_rows):
+        col_a, col_b, col_c = st.columns([2, 3, 2])
+        with col_a:
+            default_amt = remaining if i == n_rows - 1 else 0.0
+            amt = st.number_input(
+                f"Amount #{i+1}",
+                value=default_amt,
+                step=0.01,
+                format="%.2f",
+                key=f"split_amt_{selected_idx}_{i}",
+                help="Positive for deposits, negative for withdrawals",
+            )
+        with col_b:
+            desc = st.text_input(
+                f"Description #{i+1}",
+                value="",
+                key=f"split_desc_{selected_idx}_{i}",
+                placeholder="e.g., Registration fees - January",
+            )
+        with col_c:
+            cats = REVENUE_CATEGORIES if is_deposit else EXPENSE_CATEGORIES
+            cat = st.selectbox(
+                f"Category #{i+1}",
+                ALL_CATEGORIES,
+                index=ALL_CATEGORIES.index(cats[0]),
+                key=f"split_cat_{selected_idx}_{i}",
+            )
+        split_data.append({"amount": amt, "description": desc, "category": cat})
+
+    col_add, col_remove = st.columns(2)
+    with col_add:
+        if st.button("+ Add row", use_container_width=True):
+            st.session_state.split_rows = n_rows + 1
+            st.rerun()
+    with col_remove:
+        if n_rows > 2 and st.button("- Remove last row", use_container_width=True):
+            st.session_state.split_rows = n_rows - 1
+            st.rerun()
+
+    total_split = sum(r["amount"] for r in split_data)
+    difference = round(original_amount - total_split, 2)
+
+    st.markdown("---")
+    col_t1, col_t2, col_t3 = st.columns(3)
+    col_t1.metric("Original Amount", format_currency(original_amount))
+    col_t2.metric("Split Total", format_currency(total_split))
+    col_t3.metric("Remaining", format_currency(difference),
+                  delta_color="off" if difference == 0 else "inverse")
+
+    if difference != 0:
+        st.warning(f"Split amounts don't add up. Remaining: {format_currency(difference)}")
+
+    has_empty_desc = any(not r["description"].strip() for r in split_data)
+    has_zero_amt = any(r["amount"] == 0 for r in split_data)
+
+    can_split = difference == 0 and not has_empty_desc and not has_zero_amt
+
+    if not can_split:
+        issues = []
+        if difference != 0:
+            issues.append("amounts must sum to original")
+        if has_empty_desc:
+            issues.append("all rows need descriptions")
+        if has_zero_amt:
+            issues.append("no amounts can be zero")
+        st.info(f"To apply split: {', '.join(issues)}.")
+
+    if st.button("Apply Split", type="primary", use_container_width=True,
+                 disabled=not can_split):
+        new_rows = []
+        for r in split_data:
+            new_rows.append({
+                "Date": selected_row["Date"],
+                "Description": r["description"],
+                "Amount": r["amount"],
+                "Category": r["category"],
+                "Functional": get_functional_classification(r["category"]),
+                "Account": selected_row["Account"],
+            })
+
+        new_rows_df = pd.DataFrame(new_rows)
+        before = df.loc[:selected_idx - 1] if selected_idx > 0 else pd.DataFrame()
+        after = df.loc[selected_idx + 1:]
+        st.session_state.std_df = pd.concat(
+            [before, new_rows_df, after], ignore_index=True
+        )
+        st.session_state.split_rows = 2
+        st.success(
+            f"Split complete! Replaced 1 transaction ({format_currency(original_amount)}) "
+            f"with {len(new_rows)} line items."
+        )
+        st.rerun()
+
+    st.markdown("---")
+    st.subheader("Previously Split Transactions")
+    st.markdown(
+        "Transactions you've already split won't be marked differently — they simply "
+        "become individual line items. You can find them in the **Categories** tab "
+        "by searching for their descriptions."
+    )
+
+
 def dashboard_section():
     """Render the dashboard with charts and summary metrics."""
     st.header("Financial Dashboard")
@@ -1427,8 +1608,8 @@ def main():
     sidebar()
 
     if st.session_state.std_df is not None and st.session_state.categorized:
-        tab_dash, tab_cat, tab_stmt, tab_990, tab_archive, tab_upload = st.tabs([
-            "Dashboard", "Categories", "Financial Statements",
+        tab_dash, tab_cat, tab_split, tab_stmt, tab_990, tab_archive, tab_upload = st.tabs([
+            "Dashboard", "Categories", "Split Transactions", "Financial Statements",
             "Form 990 Prep", "Archive", "Upload New",
         ])
 
@@ -1437,6 +1618,9 @@ def main():
 
         with tab_cat:
             categorization_section()
+
+        with tab_split:
+            split_transaction_section()
 
         with tab_stmt:
             statements_section()
